@@ -7,7 +7,7 @@ Wilson Júnior (wilsonpjunior@gmail.com).
 import collections
 
 from django import forms
-from django.core.validators import EMPTY_VALUES, RegexValidator
+from django.core.validators import EMPTY_VALUES
 try:
     from django.utils.encoding import smart_text as smart_unicode
 except ImportError:
@@ -17,20 +17,14 @@ except ImportError:
         from django.forms.util import smart_unicode
 from django.utils.text import capfirst
 
-from mongoengine import (ReferenceField as MongoReferenceField,
-                         EmbeddedDocumentField as MongoEmbeddedDocumentField,
-                         ListField as MongoListField,
-                         MapField as MongoMapField)
+from mongoengine import ReferenceField as MongoReferenceField, EmbeddedDocumentField as MongoEmbeddedDocumentField, \
+                ListField as MongoListField, MapField as MongoMapField
 
-from mongodbforms.fields import (MongoCharField, MongoEmailField,
-                                 MongoURLField, ReferenceField,
-                                 DocumentMultipleChoiceField, ListField,
-                                 MapField)
-from mongodbforms.widgets import Html5SplitDateTimeWidget
-from mongodbforms.documentoptions import create_verbose_name
+from .fields import MongoCharField, ReferenceField, DocumentMultipleChoiceField, ListField, MapField
+from .widgets import DynamicListWidget
+from .documentoptions import create_verbose_name
 
 BLANK_CHOICE_DASH = [("", "---------")]
-
 
 class MongoFormFieldGenerator(object):
     """This class generates Django form-fields for mongoengine-fields."""
@@ -46,8 +40,8 @@ class MongoFormFieldGenerator(object):
         'stringfield': MongoCharField,
         'stringfield_choices': forms.TypedChoiceField,
         'stringfield_long': MongoCharField,
-        'emailfield': MongoEmailField,
-        'urlfield': MongoURLField,
+        'emailfield': forms.EmailField,
+        'urlfield': forms.URLField,
         'intfield': forms.IntegerField,
         'intfield_choices': forms.TypedChoiceField,
         'floatfield': forms.FloatField,
@@ -96,11 +90,10 @@ class MongoFormFieldGenerator(object):
                 return getattr(self, attr_name)(field, **kwargs)
 
             if cls_name in self.form_field_map:
-                attr = self.generator_map.get(cls_name)
-                return getattr(self, attr)(field, **kwargs)
+                return getattr(self, self.generator_map.get(cls_name))(field, **kwargs)
                 
-        raise NotImplementedError('%s is not supported by MongoForm' %
-                                  field.__class__.__name__)
+        raise NotImplementedError('%s is not supported by MongoForm' % \
+                            field.__class__.__name__)
 
     def get_field_choices(self, field, include_blank=True,
                           blank_choice=BLANK_CHOICE_DASH):
@@ -149,7 +142,7 @@ class MongoFormFieldGenerator(object):
             d['initial'] = field.default
         return f.default
         
-    def check_widget(self, map_key):
+    def _check_widget(self, map_key):
         if map_key in self.widget_override_map:
             return {'widget': self.widget_override_map.get(map_key)}
         else:
@@ -180,10 +173,10 @@ class MongoFormFieldGenerator(object):
                 'min_length': field.min_length,
             })
             if field.regex:
-                defaults['validators'] = [RegexValidator(regex=field.regex)]
+                defaults['regex'] = field.regex
             
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -197,7 +190,7 @@ class MongoFormFieldGenerator(object):
             'label': self.get_field_label(field),
             'help_text': self.get_field_help_text(field)
         }
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         form_class = self.form_field_map.get(map_key)
         defaults.update(kwargs)
         return form_class(**defaults)
@@ -210,10 +203,10 @@ class MongoFormFieldGenerator(object):
             'max_length': field.max_length,
             'initial': self.get_field_default(field),
             'label': self.get_field_label(field),
-            'help_text': self.get_field_help_text(field)
+            'help_text':  self.get_field_help_text(field)
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -238,7 +231,7 @@ class MongoFormFieldGenerator(object):
                 'max_value': field.max_value,
             })
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -253,7 +246,7 @@ class MongoFormFieldGenerator(object):
             'help_text': self.get_field_help_text(field)
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -269,7 +262,7 @@ class MongoFormFieldGenerator(object):
             'help_text': self.get_field_help_text(field)
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -290,7 +283,7 @@ class MongoFormFieldGenerator(object):
         else:
             map_key = 'booleanfield'
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -302,7 +295,7 @@ class MongoFormFieldGenerator(object):
             'label': self.get_field_label(field),
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -315,13 +308,12 @@ class MongoFormFieldGenerator(object):
             'queryset': field.document_type.objects.clone(),
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
     def generate_listfield(self, field, **kwargs):
-        # We can't really handle embedded documents here.
-        # So we just ignore them
+        # we can't really handle embedded documents here. So we just ignore them
         if isinstance(field.field, MongoEmbeddedDocumentField):
             return
         
@@ -348,13 +340,12 @@ class MongoFormFieldGenerator(object):
                 'contained_field': form_field.__class__,
             })
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
         
     def generate_mapfield(self, field, **kwargs):
-        # We can't really handle embedded documents here.
-        # So we just ignore them
+        # we can't really handle embedded documents here. So we just ignore them
         if isinstance(field.field, MongoEmbeddedDocumentField):
             return
             
@@ -367,33 +358,33 @@ class MongoFormFieldGenerator(object):
             'contained_field': form_field.__class__,
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
     def generate_filefield(self, field, **kwargs):
         map_key = 'filefield'
         defaults = {
-            'required': field.required,
-            'label': self.get_field_label(field),
+            'required':field.required,
+            'label':self.get_field_label(field),
             'initial': self.get_field_default(field),
             'help_text': self.get_field_help_text(field)
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
     def generate_imagefield(self, field, **kwargs):
         map_key = 'imagefield'
         defaults = {
-            'required': field.required,
-            'label': self.get_field_label(field),
+            'required':field.required,
+            'label':self.get_field_label(field),
             'initial': self.get_field_default(field),
             'help_text': self.get_field_help_text(field)
         }
         form_class = self.form_field_map.get(map_key)
-        defaults.update(self.check_widget(map_key))
+        defaults.update(self._check_widget(map_key))
         defaults.update(kwargs)
         return form_class(**defaults)
 
@@ -407,8 +398,7 @@ class MongoDefaultFormFieldGenerator(MongoFormFieldGenerator):
         can be found.
         """
         try:
-            sup = super(MongoDefaultFormFieldGenerator, self)
-            return sup.generate(field, **kwargs)
+            return super(MongoDefaultFormFieldGenerator, self).generate(field, **kwargs)
         except NotImplementedError:
             # a normal charfield is always a good guess
             # for a widget.
@@ -426,39 +416,10 @@ class MongoDefaultFormFieldGenerator(MongoFormFieldGenerator):
 
             defaults.update(kwargs)
             return forms.CharField(**defaults)
-
-
-class Html5FormFieldGenerator(MongoDefaultFormFieldGenerator):
-    def check_widget(self, map_key):
-        override = super(Html5FormFieldGenerator, self).check_widget(map_key)
-        if override != {}:
-            return override
-        
-        chunks = map_key.split('field')
-        kind = chunks[0]
-        
-        if kind == 'email':
-            if hasattr(forms, 'EmailInput'):
-                return {'widget': forms.EmailInput}
-            else:
-                input = forms.TextInput
-                input.input_type = 'email'
-                return {'widget': input}
-        elif kind in ['int', 'float'] and len(chunks) < 2:
-            if hasattr(forms, 'NumberInput'):
-                return {'widget': forms.NumberInput}
-            else:
-                input = forms.TextInput
-                input.input_type = 'number'
-                return {'widget': input}
-        elif kind == 'url':
-            if hasattr(forms, 'URLInput'):
-                return {'widget': forms.URLInput}
-            else:
-                input = forms.TextInput
-                input.input_type = 'url'
-                return {'widget': input}
-        elif kind == 'datetime':
-            return {'widget': Html5SplitDateTimeWidget}
-        else:
-            return {}
+            
+class DynamicFormFieldGenerator(MongoDefaultFormFieldGenerator):
+    widget_override_map = {
+        'stringfield_long': forms.Textarea,
+        'listfield': DynamicListWidget,
+    }
+    
